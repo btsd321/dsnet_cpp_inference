@@ -7,14 +7,23 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 如果有vcpkg，使用vcpkg工具链
 if(EXISTS "~/SoftWare/vcpkg/scripts/buildsystems/vcpkg.cmake")
-    set(CMAKE_TOOLCHAIN_FILE "~./SoftWare/vcpkg/scripts/buildsystems/vcpkg.cmake")
+    set(CMAKE_TOOLCHAIN_FILE "~/SoftWare/vcpkg/scripts/buildsystems/vcpkg.cmake")
     message(STATUS "Using vcpkg toolchain")
 endif()
 
 # 设置编译选项
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0 -Wall -Wextra -DDEBUG")
+    message(STATUS "Debug模式: 启用调试信息，禁用优化")
+elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra -DNDEBUG")
+    message(STATUS "Release模式: 启用最高优化，禁用调试信息")
+else()
+    # 默认Release模式
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra -DNDEBUG")
+    message(STATUS "默认Release模式: 启用最高优化")
+endif()
 
 # 设置输出目录
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
