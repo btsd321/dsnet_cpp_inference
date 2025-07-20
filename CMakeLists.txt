@@ -5,6 +5,12 @@ project(dsnet_cpp_inference VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# 如果有vcpkg，使用vcpkg工具链
+if(EXISTS "~/SoftWare/vcpkg/scripts/buildsystems/vcpkg.cmake")
+    set(CMAKE_TOOLCHAIN_FILE "~./SoftWare/vcpkg/scripts/buildsystems/vcpkg.cmake")
+    message(STATUS "Using vcpkg toolchain")
+endif()
+
 # 设置编译选项
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0")
@@ -18,6 +24,12 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # 查找依赖包
 find_package(Eigen3 REQUIRED)
 find_package(OpenCV QUIET)
+
+# argparse是header-only库，直接包含vcpkg安装的路径
+if(EXISTS "~/SoftWare/vcpkg/installed/x64-linux/include/argparse")
+    set(ARGPARSE_INCLUDE_DIR "~/SoftWare/vcpkg/installed/x64-linux/include")
+    message(STATUS "Found argparse in vcpkg")
+endif()
 
 # 可选：查找CUDA（如果需要GPU推理）
 find_package(CUDA QUIET)
@@ -37,13 +49,6 @@ if(Torch_FOUND)
 else()
     message(STATUS "LibTorch not found, using custom inference")
 endif()
-
-# 包含目录
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty
-    ${EIGEN3_INCLUDE_DIR}
-)
 
 # 添加子目录
 add_subdirectory(thirdparty)
@@ -78,10 +83,17 @@ endif()
 target_include_directories(dsnet_inference PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${OpenCV_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIR}
 )
 
 # 创建测试可执行文件
 add_executable(dsnet_test src/test.cpp)
+target_include_directories(dsnet_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${OpenCV_INCLUDE_DIRS}
+    ${EIGEN3_INCLUDE_DIR}
+    ${ARGPARSE_INCLUDE_DIR}
+)
 target_link_libraries(dsnet_test dsnet_inference)
 
 # 安装规则
