@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(dsnet_cpp_inference VERSION 1.0.0 LANGUAGES CXX)
+project(dsnet_inference VERSION 1.0.0 LANGUAGES CXX)
 
 # 设置C++标准
 set(CMAKE_CXX_STANDARD 17)
@@ -72,18 +72,19 @@ else()
 endif()
 
 # 添加子目录
-add_subdirectory(thirdparty)
+# add_subdirectory(thirdparty)
 
 # 创建dsnet推理库
 set(DSNET_SOURCES
-    "src/dsnet_inference.cpp"
-    "src/dsnet_inference_result.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/dsnet_inference.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/dsnet_inference_result.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/dsnet_utils.cpp"
 )
 
 set(DSNET_HEADERS
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference_result.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/utils.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference/dsnet_inference.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference/dsnet_inference_result.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference/dsnet_utils.h"
 )
 
 # 创建静态库

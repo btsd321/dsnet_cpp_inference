@@ -1,4 +1,4 @@
-#include "dsnet_inference.h"
+#include "dsnet_inference/dsnet_inference.h"
 
 #include <algorithm>
 #include <argparse/argparse.hpp>
@@ -9,186 +9,8 @@
 #include <random>
 #include <sstream>
 
-// PCL库
-#include <pcl/common/common.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/filters/random_sample.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/io/pcd_io.h>
-#include <pcl/io/ply_io.h>
-#include <pcl/kdtree/kdtree_flann.h>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-
 namespace dsnet
 {
-
-// ==================== 工具函数实现 ====================
-
-PointCloud::Ptr loadPointCloudFromFile(const std::string& filename)
-{
-    PointCloud::Ptr cloud(new PointCloud);
-
-    // 获取文件扩展名
-    std::string extension = filename.substr(filename.find_last_of(".") + 1);
-    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-
-    if (extension == "pcd")
-    {
-        if (pcl::io::loadPCDFile(filename, *cloud) == -1)
-        {
-            std::cerr << "无法打开PCD文件: " << filename << std::endl;
-            return nullptr;
-        }
-        std::cout << "加载PCD点云: " << cloud->points.size() << " 个点" << std::endl;
-    }
-    else if (extension == "ply")
-    {
-        if (pcl::io::loadPLYFile(filename, *cloud) == -1)
-        {
-            std::cerr << "无法打开PLY文件: " << filename << std::endl;
-            return nullptr;
-        }
-        std::cout << "加载PLY点云: " << cloud->points.size() << " 个点" << std::endl;
-    }
-    else
-    {
-        // 传统的文本格式加载
-        std::ifstream file(filename);
-        if (!file.is_open())
-        {
-            std::cerr << "无法打开文件: " << filename << std::endl;
-            return nullptr;
-        }
-
-        std::string line;
-        while (std::getline(file, line))
-        {
-            std::istringstream iss(line);
-            float x, y, z;
-
-            if (!(iss >> x >> y >> z))
-            {
-                continue;  // 跳过无效行
-            }
-
-            Point3D point;
-            point.x = x;
-            point.y = y;
-            point.z = z;
-            cloud->points.push_back(point);
-        }
-
-        cloud->width = cloud->points.size();
-        cloud->height = 1;
-        cloud->is_dense = true;
-
-        std::cout << "加载点云: " << cloud->points.size() << " 个点" << std::endl;
-    }
-
-    return cloud;
-}
-
-bool savePointCloudToFile(const PointCloud::Ptr& cloud, const std::string& filename)
-{
-    // 获取文件扩展名
-    std::string extension = filename.substr(filename.find_last_of(".") + 1);
-    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-
-    if (extension == "pcd")
-    {
-        return pcl::io::savePCDFile(filename, *cloud) == 0;
-    }
-    else if (extension == "ply")
-    {
-        return pcl::io::savePLYFile(filename, *cloud) == 0;
-    }
-    else
-    {
-        // 保存为文本格式
-        std::ofstream file(filename);
-        if (!file.is_open())
-        {
-            std::cerr << "无法创建文件: " << filename << std::endl;
-            return false;
-        }
-
-        for (const auto& point : cloud->points)
-        {
-            file << point.x << " " << point.y << " " << point.z << "\n";
-        }
-
-        return true;
-    }
-}
-
-void normalizePointCloud(PointCloud::Ptr& cloud)
-{
-    if (cloud->points.empty())
-        return;
-
-    // 计算质心
-    Eigen::Vector3f centroid(0, 0, 0);
-    for (const auto& point : cloud->points)
-    {
-        centroid += Eigen::Vector3f(point.x, point.y, point.z);
-    }
-    centroid /= static_cast<float>(cloud->points.size());
-
-    // 移动到原点
-    for (auto& point : cloud->points)
-    {
-        point.x -= centroid.x();
-        point.y -= centroid.y();
-        point.z -= centroid.z();
-    }
-
-    // 计算最大距离
-    float max_distance = 0.0f;
-    for (const auto& point : cloud->points)
-    {
-        float distance = std::sqrt(point.x * point.x + point.y * point.y + point.z * point.z);
-        max_distance = std::max(max_distance, distance);
-    }
-
-    // 缩放到单位球
-    if (max_distance > 1e-8f)
-    {
-        for (auto& point : cloud->points)
-        {
-            point.x /= max_distance;
-            point.y /= max_distance;
-            point.z /= max_distance;
-        }
-    }
-}
-
-std::pair<Point3D, Point3D> getPointCloudBoundingBox(const PointCloud::Ptr& cloud)
-{
-    Point3D min_pt, max_pt;
-
-    if (cloud->points.empty())
-    {
-        min_pt.x = min_pt.y = min_pt.z = 0.0f;
-        max_pt.x = max_pt.y = max_pt.z = 0.0f;
-        return {min_pt, max_pt};
-    }
-
-    min_pt = max_pt = cloud->points[0];
-
-    for (const auto& point : cloud->points)
-    {
-        min_pt.x = std::min(min_pt.x, point.x);
-        min_pt.y = std::min(min_pt.y, point.y);
-        min_pt.z = std::min(min_pt.z, point.z);
-
-        max_pt.x = std::max(max_pt.x, point.x);
-        max_pt.y = std::max(max_pt.y, point.y);
-        max_pt.z = std::max(max_pt.z, point.z);
-    }
-
-    return {min_pt, max_pt};
-}
 
 // ==================== DSNetInference Implementation ====================
 
@@ -277,30 +99,34 @@ InferenceResult DSNetInference::predict(const PointCloud::Ptr& input_cloud)
     InferenceResult result;
 
     // 预处理点云
-    result.preprocessed_cloud = preprocessPointCloud(input_cloud);
+    auto preprocessed_cloud = preprocessPointCloud(input_cloud);
+    result.setPreprocessedCloud(preprocessed_cloud);
 
     // 执行推理
-    auto raw_scores = forwardInference(result.preprocessed_cloud);
+    auto raw_scores = forwardInference(preprocessed_cloud);
 
     // 转换为SuctionScores格式
-    result.scores.resize(raw_scores.size());
+    std::vector<SuctionScores> scores;
+    scores.resize(raw_scores.size());
     for (size_t i = 0; i < raw_scores.size(); ++i)
     {
-        result.scores[i].seal_score = raw_scores[i][0];
-        result.scores[i].wrench_score = raw_scores[i][1];
-        result.scores[i].feasibility_score = raw_scores[i][2];
-        result.scores[i].object_size_score = raw_scores[i][3];
-        result.scores[i].composite_score = computeCompositeScore(result.scores[i]);
+        scores[i].seal_score = raw_scores[i][0];
+        scores[i].wrench_score = raw_scores[i][1];
+        scores[i].visibility_score = raw_scores[i][2];  // 修正字段名
+        scores[i].collision_score = raw_scores[i][3];   // 修正字段名
+        scores[i].composite_score = computeCompositeScore(scores[i]);
     }
+    result.setScores(scores);
 
     // 获取最佳吸取点
-    result.best_points = getBestSuctionPoints(result.scores, result.preprocessed_cloud, 10);
+    auto best_points = getBestSuctionPoints(scores, preprocessed_cloud, 10);
+    result.setBestPoints(best_points);
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-    result.inference_time_ms = static_cast<float>(duration.count());
+    result.setInferenceTime(static_cast<float>(duration.count()));
 
-    std::cout << "推理完成，用时: " << result.inference_time_ms << " ms" << std::endl;
+    std::cout << "推理完成，用时: " << result.getInferenceTime() << " ms" << std::endl;
 
     return result;
 }
@@ -511,8 +337,8 @@ float DSNetInference::computeCompositeScore(const SuctionScores& scores) const
 {
     return config_.score_weights.seal_weight * scores.seal_score +
            config_.score_weights.wrench_weight * scores.wrench_score +
-           config_.score_weights.feasibility_weight * scores.feasibility_score +
-           config_.score_weights.object_size_weight * scores.object_size_score;
+           config_.score_weights.visibility_weight * scores.visibility_score +
+           config_.score_weights.collision_weight * scores.collision_score;
 }
 
 std::vector<SuctionPoint> DSNetInference::getBestSuctionPoints(
@@ -559,23 +385,24 @@ bool saveInferenceResult(const InferenceResult& result, const std::string& filen
     }
 
     // 保存基本信息
-    file << "推理时间: " << result.inference_time_ms << " ms\n";
-    file << "点云大小: " << result.preprocessed_cloud->points.size() << "\n";
-    file << "最佳点数量: " << result.best_points.size() << "\n\n";
+    file << "推理时间: " << result.getInferenceTime() << " ms\n";
+    file << "点云大小: " << result.getPointCloudSize() << "\n";
+    file << "最佳点数量: " << result.getBestPointsCount() << "\n\n";
 
     // 保存最佳吸取点
     file << "最佳吸取点:\n";
-    for (size_t i = 0; i < result.best_points.size(); ++i)
+    const auto& best_points = result.getBestPoints();
+    for (size_t i = 0; i < best_points.size(); ++i)
     {
-        const auto& point = result.best_points[i];
+        const auto& point = best_points[i];
         file << "排名 " << (i + 1) << ":\n";
         file << "  位置: (" << point.position.x << ", " << point.position.y << ", "
              << point.position.z << ")\n";
         file << "  综合评分: " << point.scores.composite_score << "\n";
         file << "  密封评分: " << point.scores.seal_score << "\n";
         file << "  扭矩评分: " << point.scores.wrench_score << "\n";
-        file << "  可行性评分: " << point.scores.feasibility_score << "\n";
-        file << "  尺寸评分: " << point.scores.object_size_score << "\n\n";
+        file << "  可见性评分: " << point.scores.visibility_score << "\n";
+        file << "  碰撞评分: " << point.scores.collision_score << "\n\n";
     }
 
     return true;

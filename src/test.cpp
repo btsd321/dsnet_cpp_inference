@@ -2,7 +2,7 @@
 #include <iostream>
 #include <random>
 
-#include "dsnet_inference.h"
+#include "dsnet_inference/dsnet_inference.h"
 
 using namespace dsnet;
 

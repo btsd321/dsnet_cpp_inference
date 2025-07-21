@@ -14,64 +14,13 @@
 #include <torch/torch.h>
 #endif
 
-#include <pcl/common/common.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/filters/random_sample.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/io/pcd_io.h>
-#include <pcl/io/ply_io.h>
-#include <pcl/kdtree/kdtree_flann.h>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-
 #include <Eigen/Dense>
+
+#include "dsnet_inference/dsnet_inference_result.h"
+#include "dsnet_inference/dsnet_utils.h"
 
 namespace dsnet
 {
-
-// 直接使用PCL点云类型作为主要类型
-typedef pcl::PointXYZ Point3D;
-typedef pcl::PointXYZRGBNormal PointNormal;
-typedef pcl::PointCloud<Point3D> PointCloud;
-typedef pcl::PointCloud<PointNormal> PointCloudNormal;
-
-/**
- * @brief 吸取评分结构
- */
-struct SuctionScores
-{
-    float seal_score;        // 密封评分
-    float wrench_score;      // 扭矩评分
-    float visibility_score;  // 可见性评分
-    float collision_score;   // 碰撞评分
-    float composite_score;   // 综合评分
-
-    SuctionScores()
-        : seal_score(0.0f),
-          wrench_score(0.0f),
-          visibility_score(0.0f),
-          collision_score(0.0f),
-          composite_score(0.0f)
-    {
-    }
-};
-
-/**
- * @brief 吸取点结构
- */
-struct SuctionPoint
-{
-    Point3D position;      // 3D位置 (使用PCL点类型)
-    Point3D normal;        // 法向量 (使用PCL点类型)
-    SuctionScores scores;  // 评分
-    int index;             // 在点云中的索引
-
-    SuctionPoint() : index(-1)
-    {
-        position.x = position.y = position.z = 0.0f;
-        normal.x = normal.y = normal.z = 0.0f;
-    }
-};
 
 /**
  * @brief 推理配置参数
