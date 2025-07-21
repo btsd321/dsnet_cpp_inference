@@ -1,2 +1,6 @@
 build/
 Data/
+
+.vscode/
+
+pyinference/

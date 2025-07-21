@@ -35,16 +35,22 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # 查找依赖包
 find_package(Eigen3 REQUIRED)
-find_package(OpenCV QUIET)
+find_package(OpenCV REQUIRED)
 find_package(PCL CONFIG REQUIRED)
+find_package(Torch REQUIRED)
+find_package(CUDA REQUIRED)
 
-# 添加PCL编译定义
-if(PCL_FOUND)
-    add_definitions(-DUSE_PCL)
-    message(STATUS "PCL found: ${PCL_VERSION}")
-else()
-    message(FATAL_ERROR "PCL not found")
-endif()
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+
+# 启用CUDA语言支持
+enable_language(CUDA)
+
+# 添加编译定义
+add_definitions(-DUSE_PCL -DUSE_CUDA)
+
+message(STATUS "LibTorch found: ${Torch_VERSION}")
+message(STATUS "PCL found: ${PCL_VERSION}")
+message(STATUS "CUDA found: ${CUDA_VERSION}")
 
 # argparse是header-only库，直接包含vcpkg安装的路径
 if(EXISTS "~/SoftWare/vcpkg/installed/x64-linux/include/argparse")
@@ -52,24 +58,7 @@ if(EXISTS "~/SoftWare/vcpkg/installed/x64-linux/include/argparse")
     message(STATUS "Found argparse in vcpkg")
 endif()
 
-# 可选：查找CUDA（如果需要GPU推理）
-find_package(CUDA QUIET)
-if(CUDA_FOUND)
-    enable_language(CUDA)
-    add_definitions(-DUSE_CUDA)
-    message(STATUS "CUDA found: ${CUDA_VERSION}")
-else()
-    message(STATUS "CUDA not found, using CPU only")
-endif()
 
-# 可选：查找LibTorch（如果需要PyTorch C++推理）
-find_package(Torch QUIET)
-if(Torch_FOUND)
-    add_definitions(-DUSE_LIBTORCH)
-    message(STATUS "LibTorch found")
-else()
-    message(STATUS "LibTorch not found, using custom inference")
-endif()
 
 # 添加子目录
 # add_subdirectory(thirdparty)
@@ -95,15 +84,9 @@ target_link_libraries(dsnet_inference
     ${OpenCV_LIBS}
     Eigen3::Eigen
     ${PCL_LIBRARIES}
+    ${TORCH_LIBRARIES}
+    ${CUDA_LIBRARIES}
 )
-
-if(Torch_FOUND)
-    target_link_libraries(dsnet_inference ${TORCH_LIBRARIES})
-endif()
-
-if(CUDA_FOUND)
-    target_link_libraries(dsnet_inference ${CUDA_LIBRARIES})
-endif()
 
 # 设置库的包含目录
 target_include_directories(dsnet_inference PUBLIC
@@ -127,7 +110,13 @@ target_include_directories(dsnet_test PRIVATE
     ${ARGPARSE_INCLUDE_DIR}
     ${PCL_INCLUDE_DIRS}
 )
-target_link_libraries(dsnet_test dsnet_inference ${PCL_LIBRARIES})
+target_link_libraries(dsnet_test dsnet_inference 
+    ${PCL_LIBRARIES}
+    ${CUDA_LIBRARIES}
+    ${TORCH_LIBRARIES}
+    ${OpenCV_LIBS}
+    Eigen3::Eigen
+)
 
 # 安装规则
 install(TARGETS dsnet_inference
@@ -156,16 +145,10 @@ message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "Compiler: ${CMAKE_CXX_COMPILER}")
 message(STATUS "OpenCV Version: ${OpenCV_VERSION}")
 message(STATUS "Eigen3 Version: ${Eigen3_VERSION}")
-if(PCL_FOUND)
-    message(STATUS "PCL Version: ${PCL_VERSION}")
-endif()
+message(STATUS "LibTorch Version: ${Torch_VERSION}")
+message(STATUS "PCL Version: ${PCL_VERSION}")
 message(STATUS "Argparse Include: ${ARGPARSE_INCLUDE_DIR}")
-if(CUDA_FOUND)
-    message(STATUS "CUDA Version: ${CUDA_VERSION}")
-endif()
-if(Torch_FOUND)
-    message(STATUS "LibTorch Version: ${Torch_VERSION}")
-endif()
+message(STATUS "CUDA Version: ${CUDA_VERSION}")
 message(STATUS "Install Prefix: ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "========================================================================")
 message(STATUS "")
