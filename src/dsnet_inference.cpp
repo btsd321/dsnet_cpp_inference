@@ -9,134 +9,174 @@
 #include <random>
 #include <sstream>
 
+// PCL库
+#include <pcl/common/common.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/filters/random_sample.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/io/ply_io.h>
+#include <pcl/kdtree/kdtree_flann.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+
 namespace dsnet
 {
 
-// ==================== PointCloud Implementation ====================
+// ==================== 工具函数实现 ====================
 
-bool PointCloud::loadFromFile(const std::string &filename)
+PointCloud::Ptr loadPointCloudFromFile(const std::string& filename)
 {
-    std::ifstream file(filename);
-    if (!file.is_open())
+    PointCloud::Ptr cloud(new PointCloud);
+
+    // 获取文件扩展名
+    std::string extension = filename.substr(filename.find_last_of(".") + 1);
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+
+    if (extension == "pcd")
     {
-        std::cerr << "无法打开文件: " << filename << std::endl;
-        return false;
-    }
-
-    clear();
-    std::string line;
-
-    while (std::getline(file, line))
-    {
-        std::istringstream iss(line);
-        float x, y, z, nx = 0, ny = 0, nz = 0;
-
-        if (!(iss >> x >> y >> z))
+        if (pcl::io::loadPCDFile(filename, *cloud) == -1)
         {
-            continue;  // 跳过无效行
+            std::cerr << "无法打开PCD文件: " << filename << std::endl;
+            return nullptr;
+        }
+        std::cout << "加载PCD点云: " << cloud->points.size() << " 个点" << std::endl;
+    }
+    else if (extension == "ply")
+    {
+        if (pcl::io::loadPLYFile(filename, *cloud) == -1)
+        {
+            std::cerr << "无法打开PLY文件: " << filename << std::endl;
+            return nullptr;
+        }
+        std::cout << "加载PLY点云: " << cloud->points.size() << " 个点" << std::endl;
+    }
+    else
+    {
+        // 传统的文本格式加载
+        std::ifstream file(filename);
+        if (!file.is_open())
+        {
+            std::cerr << "无法打开文件: " << filename << std::endl;
+            return nullptr;
         }
 
-        // 尝试读取法向量
-        iss >> nx >> ny >> nz;
-        bool has_normal = !iss.fail();
-
-        points.emplace_back(x, y, z);
-        if (has_normal)
+        std::string line;
+        while (std::getline(file, line))
         {
-            normals.emplace_back(nx, ny, nz);
+            std::istringstream iss(line);
+            float x, y, z;
+
+            if (!(iss >> x >> y >> z))
+            {
+                continue;  // 跳过无效行
+            }
+
+            Point3D point;
+            point.x = x;
+            point.y = y;
+            point.z = z;
+            cloud->points.push_back(point);
         }
+
+        cloud->width = cloud->points.size();
+        cloud->height = 1;
+        cloud->is_dense = true;
+
+        std::cout << "加载点云: " << cloud->points.size() << " 个点" << std::endl;
     }
 
-    // 如果只有部分点有法向量，清空法向量数组
-    if (!normals.empty() && normals.size() != points.size())
-    {
-        normals.clear();
-    }
-
-    std::cout << "加载点云: " << points.size() << " 个点";
-    if (hasNormals())
-    {
-        std::cout << " (包含法向量)";
-    }
-    std::cout << std::endl;
-
-    return !points.empty();
+    return cloud;
 }
 
-bool PointCloud::saveToFile(const std::string &filename) const
+bool savePointCloudToFile(const PointCloud::Ptr& cloud, const std::string& filename)
 {
-    std::ofstream file(filename);
-    if (!file.is_open())
+    // 获取文件扩展名
+    std::string extension = filename.substr(filename.find_last_of(".") + 1);
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+
+    if (extension == "pcd")
     {
-        std::cerr << "无法创建文件: " << filename << std::endl;
-        return false;
+        return pcl::io::savePCDFile(filename, *cloud) == 0;
     }
-
-    for (size_t i = 0; i < points.size(); ++i)
+    else if (extension == "ply")
     {
-        file << points[i].x << " " << points[i].y << " " << points[i].z;
-
-        if (hasNormals())
+        return pcl::io::savePLYFile(filename, *cloud) == 0;
+    }
+    else
+    {
+        // 保存为文本格式
+        std::ofstream file(filename);
+        if (!file.is_open())
         {
-            file << " " << normals[i].x << " " << normals[i].y << " " << normals[i].z;
+            std::cerr << "无法创建文件: " << filename << std::endl;
+            return false;
         }
 
-        file << "\n";
-    }
+        for (const auto& point : cloud->points)
+        {
+            file << point.x << " " << point.y << " " << point.z << "\n";
+        }
 
-    return true;
+        return true;
+    }
 }
 
-void PointCloud::normalize()
+void normalizePointCloud(PointCloud::Ptr& cloud)
 {
-    if (points.empty())
+    if (cloud->points.empty())
         return;
 
     // 计算质心
     Eigen::Vector3f centroid(0, 0, 0);
-    for (const auto &point : points)
+    for (const auto& point : cloud->points)
     {
-        centroid += point.toEigen();
+        centroid += Eigen::Vector3f(point.x, point.y, point.z);
     }
-    centroid /= static_cast<float>(points.size());
+    centroid /= static_cast<float>(cloud->points.size());
 
     // 移动到原点
-    for (auto &point : points)
+    for (auto& point : cloud->points)
     {
-        Eigen::Vector3f vec = point.toEigen() - centroid;
-        point = Point3D::fromEigen(vec);
+        point.x -= centroid.x();
+        point.y -= centroid.y();
+        point.z -= centroid.z();
     }
 
     // 计算最大距离
     float max_distance = 0.0f;
-    for (const auto &point : points)
+    for (const auto& point : cloud->points)
     {
-        float distance = point.toEigen().norm();
+        float distance = std::sqrt(point.x * point.x + point.y * point.y + point.z * point.z);
         max_distance = std::max(max_distance, distance);
     }
 
     // 缩放到单位球
     if (max_distance > 1e-8f)
     {
-        for (auto &point : points)
+        for (auto& point : cloud->points)
         {
-            Eigen::Vector3f vec = point.toEigen() / max_distance;
-            point = Point3D::fromEigen(vec);
+            point.x /= max_distance;
+            point.y /= max_distance;
+            point.z /= max_distance;
         }
     }
 }
 
-std::pair<Point3D, Point3D> PointCloud::getBoundingBox() const
+std::pair<Point3D, Point3D> getPointCloudBoundingBox(const PointCloud::Ptr& cloud)
 {
-    if (points.empty())
+    Point3D min_pt, max_pt;
+
+    if (cloud->points.empty())
     {
-        return {Point3D(), Point3D()};
+        min_pt.x = min_pt.y = min_pt.z = 0.0f;
+        max_pt.x = max_pt.y = max_pt.z = 0.0f;
+        return {min_pt, max_pt};
     }
 
-    Point3D min_pt = points[0];
-    Point3D max_pt = points[0];
+    min_pt = max_pt = cloud->points[0];
 
-    for (const auto &point : points)
+    for (const auto& point : cloud->points)
     {
         min_pt.x = std::min(min_pt.x, point.x);
         min_pt.y = std::min(min_pt.y, point.y);
@@ -152,7 +192,7 @@ std::pair<Point3D, Point3D> PointCloud::getBoundingBox() const
 
 // ==================== DSNetInference Implementation ====================
 
-DSNetInference::DSNetInference(const std::string &model_path, const InferenceConfig &config)
+DSNetInference::DSNetInference(const std::string& model_path, const InferenceConfig& config)
     : model_path_(model_path), config_(config), initialized_(false)
 {
 }
@@ -213,7 +253,7 @@ bool DSNetInference::loadModel()
 
         return true;
     }
-    catch (const std::exception &e)
+    catch (const std::exception& e)
     {
         std::cerr << "LibTorch模型加载失败: " << e.what() << std::endl;
         return false;
@@ -225,7 +265,7 @@ bool DSNetInference::loadModel()
 #endif
 }
 
-InferenceResult DSNetInference::predict(const PointCloud &input_cloud)
+InferenceResult DSNetInference::predict(const PointCloud::Ptr& input_cloud)
 {
     if (!initialized_)
     {
@@ -266,12 +306,12 @@ InferenceResult DSNetInference::predict(const PointCloud &input_cloud)
 }
 
 std::vector<InferenceResult> DSNetInference::predictBatch(
-    const std::vector<PointCloud> &input_clouds)
+    const std::vector<PointCloud::Ptr>& input_clouds)
 {
     std::vector<InferenceResult> results;
     results.reserve(input_clouds.size());
 
-    for (const auto &cloud : input_clouds)
+    for (const auto& cloud : input_clouds)
     {
         results.push_back(predict(cloud));
     }
@@ -279,19 +319,19 @@ std::vector<InferenceResult> DSNetInference::predictBatch(
     return results;
 }
 
-PointCloud DSNetInference::preprocessPointCloud(const PointCloud &input_cloud)
+PointCloud::Ptr DSNetInference::preprocessPointCloud(const PointCloud::Ptr& input_cloud)
 {
-    std::cout << "预处理点云: " << input_cloud.size() << " 个点" << std::endl;
+    std::cout << "预处理点云: " << input_cloud->points.size() << " 个点" << std::endl;
 
-    PointCloud processed_cloud = input_cloud;
+    PointCloud::Ptr processed_cloud(new PointCloud(*input_cloud));
 
     // 归一化
-    processed_cloud.normalize();
+    normalizePointCloud(processed_cloud);
 
     // 采样到目标点数
-    if (static_cast<int>(processed_cloud.size()) != config_.num_points)
+    if (static_cast<int>(processed_cloud->points.size()) != config_.num_points)
     {
-        if (static_cast<int>(processed_cloud.size()) > config_.num_points)
+        if (static_cast<int>(processed_cloud->points.size()) > config_.num_points)
         {
             // 下采样
             processed_cloud = fpsSubsample(processed_cloud, config_.num_points);
@@ -299,53 +339,51 @@ PointCloud DSNetInference::preprocessPointCloud(const PointCloud &input_cloud)
         else
         {
             // 上采样（重复采样）
-            PointCloud upsampled_cloud;
-            int repeat_times = (config_.num_points + static_cast<int>(processed_cloud.size()) - 1) /
-                               static_cast<int>(processed_cloud.size());
+            PointCloud::Ptr upsampled_cloud(new PointCloud);
+            int repeat_times =
+                (config_.num_points + static_cast<int>(processed_cloud->points.size()) - 1) /
+                static_cast<int>(processed_cloud->points.size());
 
-            for (int r = 0;
-                 r < repeat_times && static_cast<int>(upsampled_cloud.size()) < config_.num_points;
+            for (int r = 0; r < repeat_times &&
+                            static_cast<int>(upsampled_cloud->points.size()) < config_.num_points;
                  ++r)
             {
-                for (size_t i = 0; i < processed_cloud.size() &&
-                                   static_cast<int>(upsampled_cloud.size()) < config_.num_points;
+                for (size_t i = 0;
+                     i < processed_cloud->points.size() &&
+                     static_cast<int>(upsampled_cloud->points.size()) < config_.num_points;
                      ++i)
                 {
-                    upsampled_cloud.addPoint(
-                        processed_cloud.points[i],
-                        processed_cloud.hasNormals() ? processed_cloud.normals[i] : Point3D());
+                    upsampled_cloud->points.push_back(processed_cloud->points[i]);
                 }
             }
+
+            upsampled_cloud->width = upsampled_cloud->points.size();
+            upsampled_cloud->height = 1;
+            upsampled_cloud->is_dense = true;
+
             processed_cloud = upsampled_cloud;
         }
     }
 
-    // 如果没有法向量，添加零向量
-    if (!processed_cloud.hasNormals())
-    {
-        processed_cloud.normals.resize(processed_cloud.size(), Point3D(0, 0, 0));
-        std::cout << "警告: 未提供法向量，使用零向量" << std::endl;
-    }
-
-    std::cout << "预处理后点云: " << processed_cloud.size() << " 个点" << std::endl;
+    std::cout << "预处理后点云: " << processed_cloud->points.size() << " 个点" << std::endl;
 
     return processed_cloud;
 }
 
-PointCloud DSNetInference::fpsSubsample(const PointCloud &cloud, int num_samples)
+PointCloud::Ptr DSNetInference::fpsSubsample(const PointCloud::Ptr& cloud, int num_samples)
 {
-    if (static_cast<int>(cloud.size()) <= num_samples)
+    if (static_cast<int>(cloud->points.size()) <= num_samples)
     {
-        return cloud;
+        return PointCloud::Ptr(new PointCloud(*cloud));
     }
 
     std::vector<int> sampled_indices;
-    std::vector<float> distances(cloud.size(), std::numeric_limits<float>::max());
+    std::vector<float> distances(cloud->points.size(), std::numeric_limits<float>::max());
 
     // 随机选择第一个点
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, static_cast<int>(cloud.size()) - 1);
+    std::uniform_int_distribution<> dis(0, static_cast<int>(cloud->points.size()) - 1);
 
     int farthest = dis(gen);
     sampled_indices.push_back(farthest);
@@ -353,18 +391,21 @@ PointCloud DSNetInference::fpsSubsample(const PointCloud &cloud, int num_samples
     for (int i = 1; i < num_samples; ++i)
     {
         // 更新距离
-        Eigen::Vector3f current_point = cloud.points[farthest].toEigen();
+        const auto& current_point = cloud->points[farthest];
 
-        for (size_t j = 0; j < cloud.size(); ++j)
+        for (size_t j = 0; j < cloud->points.size(); ++j)
         {
-            Eigen::Vector3f point = cloud.points[j].toEigen();
-            float dist = (point - current_point).squaredNorm();
+            const auto& point = cloud->points[j];
+            float dx = point.x - current_point.x;
+            float dy = point.y - current_point.y;
+            float dz = point.z - current_point.z;
+            float dist = dx * dx + dy * dy + dz * dz;
             distances[j] = std::min(distances[j], dist);
         }
 
         // 找到最远的点
         farthest = 0;
-        for (size_t j = 1; j < cloud.size(); ++j)
+        for (size_t j = 1; j < cloud->points.size(); ++j)
         {
             if (distances[j] > distances[farthest])
             {
@@ -376,42 +417,42 @@ PointCloud DSNetInference::fpsSubsample(const PointCloud &cloud, int num_samples
     }
 
     // 创建采样后的点云
-    PointCloud sampled_cloud;
+    PointCloud::Ptr sampled_cloud(new PointCloud);
     for (int idx : sampled_indices)
     {
-        sampled_cloud.addPoint(cloud.points[idx],
-                               cloud.hasNormals() ? cloud.normals[idx] : Point3D());
+        sampled_cloud->points.push_back(cloud->points[idx]);
     }
+
+    sampled_cloud->width = sampled_cloud->points.size();
+    sampled_cloud->height = 1;
+    sampled_cloud->is_dense = true;
 
     return sampled_cloud;
 }
 
 std::vector<std::array<float, 4>> DSNetInference::forwardInference(
-    const PointCloud &preprocessed_cloud)
+    const PointCloud::Ptr& preprocessed_cloud)
 {
     std::vector<std::array<float, 4>> results;
-    results.resize(preprocessed_cloud.size());
+    results.resize(preprocessed_cloud->points.size());
 
 #ifdef USE_LIBTORCH
     try
     {
         // 转换为tensor
         std::vector<float> points_data;
-        points_data.reserve(preprocessed_cloud.size() * 6);  // 3坐标 + 3法向量
+        points_data.reserve(preprocessed_cloud->points.size() * 3);  // 3坐标
 
-        for (size_t i = 0; i < preprocessed_cloud.size(); ++i)
+        for (size_t i = 0; i < preprocessed_cloud->points.size(); ++i)
         {
-            points_data.push_back(preprocessed_cloud.points[i].x);
-            points_data.push_back(preprocessed_cloud.points[i].y);
-            points_data.push_back(preprocessed_cloud.points[i].z);
-            points_data.push_back(preprocessed_cloud.normals[i].x);
-            points_data.push_back(preprocessed_cloud.normals[i].y);
-            points_data.push_back(preprocessed_cloud.normals[i].z);
+            points_data.push_back(preprocessed_cloud->points[i].x);
+            points_data.push_back(preprocessed_cloud->points[i].y);
+            points_data.push_back(preprocessed_cloud->points[i].z);
         }
 
-        auto tensor =
-            torch::from_blob(points_data.data(),
-                             {1, static_cast<long>(preprocessed_cloud.size()), 6}, torch::kFloat);
+        auto tensor = torch::from_blob(points_data.data(),
+                                       {1, static_cast<long>(preprocessed_cloud->points.size()), 3},
+                                       torch::kFloat);
 
         if (config_.use_gpu && torch::cuda::is_available())
         {
@@ -427,7 +468,7 @@ std::vector<std::array<float, 4>> DSNetInference::forwardInference(
 
         // 转换结果
         auto output_accessor = output.accessor<float, 3>();
-        for (size_t i = 0; i < preprocessed_cloud.size(); ++i)
+        for (size_t i = 0; i < preprocessed_cloud->points.size(); ++i)
         {
             results[i][0] = output_accessor[0][i][0];  // seal_score
             results[i][1] = output_accessor[0][i][1];  // wrench_score
@@ -435,7 +476,7 @@ std::vector<std::array<float, 4>> DSNetInference::forwardInference(
             results[i][3] = output_accessor[0][i][3];  // object_size_score
         }
     }
-    catch (const std::exception &e)
+    catch (const std::exception& e)
     {
         std::cerr << "LibTorch推理失败: " << e.what() << std::endl;
         // 回退到模拟推理
@@ -454,7 +495,7 @@ std::vector<std::array<float, 4>> DSNetInference::forwardInference(
         std::normal_distribution<float> feasibility_dist(0.5f, 0.3f);
         std::normal_distribution<float> size_dist(0.5f, 0.2f);
 
-        for (size_t i = 0; i < preprocessed_cloud.size(); ++i)
+        for (size_t i = 0; i < preprocessed_cloud->points.size(); ++i)
         {
             results[i][0] = seal_dist(gen);         // seal_score
             results[i][1] = wrench_dist(gen);       // wrench_score
@@ -466,7 +507,7 @@ std::vector<std::array<float, 4>> DSNetInference::forwardInference(
     return results;
 }
 
-float DSNetInference::computeCompositeScore(const SuctionScores &scores) const
+float DSNetInference::computeCompositeScore(const SuctionScores& scores) const
 {
     return config_.score_weights.seal_weight * scores.seal_score +
            config_.score_weights.wrench_weight * scores.wrench_score +
@@ -475,7 +516,7 @@ float DSNetInference::computeCompositeScore(const SuctionScores &scores) const
 }
 
 std::vector<SuctionPoint> DSNetInference::getBestSuctionPoints(
-    const std::vector<SuctionScores> &scores, const PointCloud &cloud, int top_k) const
+    const std::vector<SuctionScores>& scores, const PointCloud::Ptr& cloud, int top_k) const
 {
     // 创建索引数组
     std::vector<size_t> indices(scores.size());
@@ -495,8 +536,10 @@ std::vector<SuctionPoint> DSNetInference::getBestSuctionPoints(
     {
         size_t idx = indices[i];
         SuctionPoint point;
-        point.position = cloud.points[idx];
-        point.normal = cloud.hasNormals() ? cloud.normals[idx] : Point3D(0, 0, 1);
+        point.position = cloud->points[idx];
+        point.normal.x = 0.0f;
+        point.normal.y = 0.0f;
+        point.normal.z = 1.0f;  // 默认法向量
         point.scores = scores[idx];
         point.index = static_cast<int>(idx);
         best_points.push_back(point);
@@ -507,19 +550,7 @@ std::vector<SuctionPoint> DSNetInference::getBestSuctionPoints(
 
 // ==================== Utility Functions ====================
 
-PointCloud loadPointCloudFromFile(const std::string &filename)
-{
-    PointCloud cloud;
-    cloud.loadFromFile(filename);
-    return cloud;
-}
-
-bool savePointCloudToFile(const PointCloud &cloud, const std::string &filename)
-{
-    return cloud.saveToFile(filename);
-}
-
-bool saveInferenceResult(const InferenceResult &result, const std::string &filename)
+bool saveInferenceResult(const InferenceResult& result, const std::string& filename)
 {
     std::ofstream file(filename);
     if (!file.is_open())
@@ -529,14 +560,14 @@ bool saveInferenceResult(const InferenceResult &result, const std::string &filen
 
     // 保存基本信息
     file << "推理时间: " << result.inference_time_ms << " ms\n";
-    file << "点云大小: " << result.preprocessed_cloud.size() << "\n";
+    file << "点云大小: " << result.preprocessed_cloud->points.size() << "\n";
     file << "最佳点数量: " << result.best_points.size() << "\n\n";
 
     // 保存最佳吸取点
     file << "最佳吸取点:\n";
     for (size_t i = 0; i < result.best_points.size(); ++i)
     {
-        const auto &point = result.best_points[i];
+        const auto& point = result.best_points[i];
         file << "排名 " << (i + 1) << ":\n";
         file << "  位置: (" << point.position.x << ", " << point.position.y << ", "
              << point.position.z << ")\n";

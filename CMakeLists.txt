@@ -36,6 +36,15 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # 查找依赖包
 find_package(Eigen3 REQUIRED)
 find_package(OpenCV QUIET)
+find_package(PCL CONFIG REQUIRED)
+
+# 添加PCL编译定义
+if(PCL_FOUND)
+    add_definitions(-DUSE_PCL)
+    message(STATUS "PCL found: ${PCL_VERSION}")
+else()
+    message(FATAL_ERROR "PCL not found")
+endif()
 
 # argparse是header-only库，直接包含vcpkg安装的路径
 if(EXISTS "~/SoftWare/vcpkg/installed/x64-linux/include/argparse")
@@ -67,11 +76,14 @@ add_subdirectory(thirdparty)
 
 # 创建dsnet推理库
 set(DSNET_SOURCES
-    src/dsnet_inference.cpp
+    "src/dsnet_inference.cpp"
+    "src/dsnet_inference_result.cpp"
 )
 
 set(DSNET_HEADERS
-    include/dsnet_inference.h
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference_result.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/utils.h"
 )
 
 # 创建静态库
@@ -81,6 +93,7 @@ add_library(dsnet_inference STATIC ${DSNET_SOURCES})
 target_link_libraries(dsnet_inference
     ${OpenCV_LIBS}
     Eigen3::Eigen
+    ${PCL_LIBRARIES}
 )
 
 if(Torch_FOUND)
@@ -96,17 +109,24 @@ target_include_directories(dsnet_inference PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${OpenCV_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIR}
+    ${PCL_INCLUDE_DIRS}
 )
 
 # 创建测试可执行文件
-add_executable(dsnet_test src/test.cpp)
+add_executable(dsnet_test 
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/test.cpp" 
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/dsnet_inference.cpp" 
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/dsnet_inference_result.cpp"
+)
+
 target_include_directories(dsnet_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${OpenCV_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIR}
     ${ARGPARSE_INCLUDE_DIR}
+    ${PCL_INCLUDE_DIRS}
 )
-target_link_libraries(dsnet_test dsnet_inference)
+target_link_libraries(dsnet_test dsnet_inference ${PCL_LIBRARIES})
 
 # 安装规则
 install(TARGETS dsnet_inference
@@ -135,6 +155,9 @@ message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "Compiler: ${CMAKE_CXX_COMPILER}")
 message(STATUS "OpenCV Version: ${OpenCV_VERSION}")
 message(STATUS "Eigen3 Version: ${Eigen3_VERSION}")
+if(PCL_FOUND)
+    message(STATUS "PCL Version: ${PCL_VERSION}")
+endif()
 message(STATUS "Argparse Include: ${ARGPARSE_INCLUDE_DIR}")
 if(CUDA_FOUND)
     message(STATUS "CUDA Version: ${CUDA_VERSION}")

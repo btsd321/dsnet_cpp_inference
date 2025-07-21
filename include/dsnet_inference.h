@@ -14,50 +14,43 @@
 #include <torch/torch.h>
 #endif
 
+#include <pcl/common/common.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/filters/random_sample.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/io/ply_io.h>
+#include <pcl/kdtree/kdtree_flann.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+
 #include <Eigen/Dense>
 
 namespace dsnet
 {
 
-/**
- * @brief 3D点结构
- */
-struct Point3D
-{
-    float x, y, z;
-
-    Point3D() : x(0), y(0), z(0) {}
-    Point3D(float x_, float y_, float z_) : x(x_), y(y_), z(z_) {}
-
-    // 转换为Eigen向量
-    Eigen::Vector3f toEigen() const
-    {
-        return Eigen::Vector3f(x, y, z);
-    }
-
-    // 从Eigen向量创建
-    static Point3D fromEigen(const Eigen::Vector3f& vec)
-    {
-        return Point3D(vec.x(), vec.y(), vec.z());
-    }
-};
+// 直接使用PCL点云类型作为主要类型
+typedef pcl::PointXYZ Point3D;
+typedef pcl::PointXYZRGBNormal PointNormal;
+typedef pcl::PointCloud<Point3D> PointCloud;
+typedef pcl::PointCloud<PointNormal> PointCloudNormal;
 
 /**
  * @brief 吸取评分结构
  */
 struct SuctionScores
 {
-    float seal_score;         // 密封评分
-    float wrench_score;       // 扭矩评分
-    float feasibility_score;  // 可行性评分
-    float object_size_score;  // 物体尺寸评分
-    float composite_score;    // 综合评分
+    float seal_score;        // 密封评分
+    float wrench_score;      // 扭矩评分
+    float visibility_score;  // 可见性评分
+    float collision_score;   // 碰撞评分
+    float composite_score;   // 综合评分
 
     SuctionScores()
         : seal_score(0.0f),
           wrench_score(0.0f),
-          feasibility_score(0.0f),
-          object_size_score(0.0f),
+          visibility_score(0.0f),
+          collision_score(0.0f),
           composite_score(0.0f)
     {
     }
@@ -68,70 +61,16 @@ struct SuctionScores
  */
 struct SuctionPoint
 {
-    Point3D position;      // 3D位置
-    Point3D normal;        // 法向量
+    Point3D position;      // 3D位置 (使用PCL点类型)
+    Point3D normal;        // 法向量 (使用PCL点类型)
     SuctionScores scores;  // 评分
     int index;             // 在点云中的索引
 
-    SuctionPoint() : index(-1) {}
-};
-
-/**
- * @brief 点云结构
- */
-class PointCloud
-{
-   public:
-    std::vector<Point3D> points;   // 点坐标
-    std::vector<Point3D> normals;  // 法向量（可选）
-
-    PointCloud() = default;
-    PointCloud(const std::vector<Point3D>& pts) : points(pts) {}
-    PointCloud(const std::vector<Point3D>& pts, const std::vector<Point3D>& norms)
-        : points(pts), normals(norms)
+    SuctionPoint() : index(-1)
     {
+        position.x = position.y = position.z = 0.0f;
+        normal.x = normal.y = normal.z = 0.0f;
     }
-
-    // 获取点数
-    size_t size() const
-    {
-        return points.size();
-    }
-
-    // 检查是否有法向量
-    bool hasNormals() const
-    {
-        return !normals.empty() && normals.size() == points.size();
-    }
-
-    // 添加点
-    void addPoint(const Point3D& point, const Point3D& normal = Point3D())
-    {
-        points.push_back(point);
-        if (hasNormals() || normal.x != 0 || normal.y != 0 || normal.z != 0)
-        {
-            normals.push_back(normal);
-        }
-    }
-
-    // 清空
-    void clear()
-    {
-        points.clear();
-        normals.clear();
-    }
-
-    // 从文件加载
-    bool loadFromFile(const std::string& filename);
-
-    // 保存到文件
-    bool saveToFile(const std::string& filename) const;
-
-    // 归一化到单位球
-    void normalize();
-
-    // 计算边界框
-    std::pair<Point3D, Point3D> getBoundingBox() const;
 };
 
 /**
@@ -147,24 +86,15 @@ struct InferenceConfig
     // 评分权重
     struct ScoreWeights
     {
-        float seal_weight = 0.3f;
-        float wrench_weight = 0.3f;
-        float feasibility_weight = 0.3f;
-        float object_size_weight = 0.1f;
+        // 密封评分权重
+        float seal_weight = 0.25f;
+        // 扭矩评分权重
+        float wrench_weight = 0.25f;
+        // 可见性评分权重
+        float visibility_weight = 0.25f;
+        // 碰撞评分权重
+        float collision_weight = 0.25f;
     } score_weights;
-};
-
-/**
- * @brief DSNet推理结果
- */
-struct InferenceResult
-{
-    std::vector<SuctionScores> scores;      // 所有点的评分
-    std::vector<SuctionPoint> best_points;  // 最佳吸取点
-    PointCloud preprocessed_cloud;          // 预处理后的点云
-    float inference_time_ms;                // 推理时间（毫秒）
-
-    InferenceResult() : inference_time_ms(0.0f) {}
 };
 
 /**
@@ -197,14 +127,14 @@ class DSNetInference
      * @param input_cloud 输入点云
      * @return 推理结果
      */
-    InferenceResult predict(const PointCloud& input_cloud);
+    InferenceResult predict(const PointCloud::Ptr& input_cloud);
 
     /**
      * @brief 批量推理
      * @param input_clouds 输入点云列表
      * @return 推理结果列表
      */
-    std::vector<InferenceResult> predictBatch(const std::vector<PointCloud>& input_clouds);
+    std::vector<InferenceResult> predictBatch(const std::vector<PointCloud::Ptr>& input_clouds);
 
     /**
      * @brief 获取最佳吸取点
@@ -214,7 +144,8 @@ class DSNetInference
      * @return 最佳吸取点列表
      */
     std::vector<SuctionPoint> getBestSuctionPoints(const std::vector<SuctionScores>& scores,
-                                                   const PointCloud& cloud, int top_k = 10) const;
+                                                   const PointCloud::Ptr& cloud,
+                                                   int top_k = 10) const;
 
     /**
      * @brief 设置配置
@@ -257,7 +188,7 @@ class DSNetInference
      * @param input_cloud 输入点云
      * @return 预处理后的点云
      */
-    PointCloud preprocessPointCloud(const PointCloud& input_cloud);
+    PointCloud::Ptr preprocessPointCloud(const PointCloud::Ptr& input_cloud);
 
     /**
      * @brief 最远点采样
@@ -265,7 +196,7 @@ class DSNetInference
      * @param num_samples 采样数量
      * @return 采样后的点云
      */
-    PointCloud fpsSubsample(const PointCloud& cloud, int num_samples);
+    PointCloud::Ptr fpsSubsample(const PointCloud::Ptr& cloud, int num_samples);
 
     /**
      * @brief 计算综合评分
@@ -285,7 +216,7 @@ class DSNetInference
      * @param preprocessed_cloud 预处理后的点云
      * @return 原始推理结果
      */
-    std::vector<std::array<float, 4>> forwardInference(const PointCloud& preprocessed_cloud);
+    std::vector<std::array<float, 4>> forwardInference(const PointCloud::Ptr& preprocessed_cloud);
 };
 
 /**
@@ -293,7 +224,7 @@ class DSNetInference
  * @param filename 文件名
  * @return 点云对象
  */
-PointCloud loadPointCloudFromFile(const std::string& filename);
+PointCloud::Ptr loadPointCloudFromFile(const std::string& filename);
 
 /**
  * @brief 工具函数：保存点云到文件
@@ -301,7 +232,7 @@ PointCloud loadPointCloudFromFile(const std::string& filename);
  * @param filename 文件名
  * @return 是否成功
  */
-bool savePointCloudToFile(const PointCloud& cloud, const std::string& filename);
+bool savePointCloudToFile(const PointCloud::Ptr& cloud, const std::string& filename);
 
 /**
  * @brief 工具函数：保存推理结果
@@ -310,6 +241,19 @@ bool savePointCloudToFile(const PointCloud& cloud, const std::string& filename);
  * @return 是否成功
  */
 bool saveInferenceResult(const InferenceResult& result, const std::string& filename);
+
+/**
+ * @brief 工具函数：归一化点云到单位球
+ * @param cloud 输入点云
+ */
+void normalizePointCloud(PointCloud::Ptr& cloud);
+
+/**
+ * @brief 工具函数：计算点云边界框
+ * @param cloud 输入点云
+ * @return 最小点和最大点
+ */
+std::pair<Point3D, Point3D> getPointCloudBoundingBox(const PointCloud::Ptr& cloud);
 
 /**
  * @brief 工具函数：可视化结果（需要OpenCV）
