@@ -3,4 +3,12 @@ Data/
 
 .vscode/
 
-pyinference/
+input/
+output/
+__pycache__
+dist/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
