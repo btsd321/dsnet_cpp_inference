@@ -16,7 +16,9 @@
 
 #include <Eigen/Dense>
 
+#include "dsnet_inference/dsnet_diffusion_model.h"
 #include "dsnet_inference/dsnet_inference_result.h"
+#include "dsnet_inference/dsnet_model_loader.h"
 #include "dsnet_inference/dsnet_utils.h"
 
 namespace dsnet
@@ -27,23 +29,26 @@ namespace dsnet
  */
 struct InferenceConfig
 {
-    int num_points = 16384;       // 采样点数
-    int diffusion_steps = 50;     // 扩散步数
-    bool use_gpu = true;          // 是否使用GPU
-    std::string device = "cuda";  // 设备类型
+    int num_points = 16384;      // 采样点数
+    int diffusion_steps = 50;    // 扩散步数
+    bool use_gpu = false;        // 暂不支持GPU，使用CPU实现
+    std::string device = "cpu";  // 设备类型
 
     // 评分权重
     struct ScoreWeights
     {
         // 密封评分权重
-        float seal_weight = 0.25f;
+        float seal_weight = 0.3f;
         // 扭矩评分权重
-        float wrench_weight = 0.25f;
+        float wrench_weight = 0.3f;
         // 可见性评分权重
-        float visibility_weight = 0.25f;
-        // 碰撞评分权重
-        float collision_weight = 0.25f;
+        float feasibility_weight = 0.3f;
+        // 物体尺寸评分权重
+        float object_size_weight = 0.1f;
     } score_weights;
+
+    // 模型使用手写实现而非LibTorch
+    bool use_handwritten_impl = true;
 };
 
 /**
@@ -129,8 +134,11 @@ class DSNetInference
     bool initialized_;        // 是否已初始化
 
 #ifdef USE_LIBTORCH
-    torch::jit::script::Module model_;  // LibTorch模型
+    torch::jit::script::Module model_;  // LibTorch模型（备用）
 #endif
+
+    // 手写实现的模型
+    std::unique_ptr<DSNetModel> dsnet_model_;
 
     /**
      * @brief 预处理点云
@@ -166,6 +174,15 @@ class DSNetInference
      * @return 原始推理结果
      */
     std::vector<std::array<float, 4>> forwardInference(const PointCloud::Ptr& preprocessed_cloud);
+
+    /**
+     * @brief 使用手写实现进行推理
+     * @param preprocessed_cloud 预处理后的点云
+     * @param normals 法向量
+     * @return 推理结果
+     */
+    std::vector<std::array<float, 4>> handwrittenInference(
+        const PointCloud::Ptr& preprocessed_cloud, const PointCloud::Ptr& normals_cloud = nullptr);
 };
 
 /**

@@ -1,6 +1,7 @@
 #ifndef DSNET_UTILS_H
 #define DSNET_UTILS_H
 
+#ifdef USE_PCL
 #include <pcl/common/common.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/filters/random_sample.h>
@@ -8,6 +9,20 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/io/ply_io.h>
 #include <pcl/kdtree/kdtree_flann.h>
+#else
+// Fallback minimal point cloud definitions
+struct PointXYZ
+{
+    float x, y, z;
+    PointXYZ() = default;
+    PointXYZ(float x_, float y_, float z_) : x(x_), y(y_), z(z_) {}
+};
+template <typename T>
+struct PointCloud
+{
+    std::vector<T> points;
+};
+#endif
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
