@@ -92,28 +92,30 @@ if(EXISTS "~/SoftWare/vcpkg/installed/x64-linux/include/argparse")
     message(STATUS "Found argparse in vcpkg")
 endif()
 
-
-
-# 添加子目录
-# add_subdirectory(thirdparty)
+# 收集pointnet2相关源文件
+file(GLOB POINTNET2_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/pointnet2/*.cpp")
+# 收集dsnet相关源文件
+file(GLOB DSNET_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/dsnet/*.cpp")
+# 收集pointnet2相关头文件
+file(GLOB POINTNET2_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/include/pointnet2/*.h")
+# 收集dsnet相关头文件
+file(GLOB DSNET_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference/*.h")
+# 收集测试源文件
+file(GLOB TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/test/*.cpp")
 
 # 创建dsnet推理库
-set(DSNET_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/dsnet_model_loader.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/weight_loader_utils.cpp"
+set(PROJECT_SOURCES
+    "${POINTNET2_SOURCES}"
+    "${DSNET_SOURCES}"
 )
 
-set(DSNET_HEADERS
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference/dsnet_inference.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference/dsnet_inference_result.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference/dsnet_utils.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference/dsnet_model_loader.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference/dsnet_pointnet_backbone.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/dsnet_inference/dsnet_diffusion_model.h"
+set(PROJECT_HEADERS
+    "${POINTNET2_HEADERS}"
+    "${DSNET_HEADERS}"
 )
 
 # 创建静态库
-add_library(dsnet_inference STATIC ${DSNET_SOURCES})
+add_library(dsnet_inference STATIC ${PROJECT_SOURCES})
 
 # 基础链接库
 target_link_libraries(dsnet_inference Eigen3::Eigen)
@@ -155,34 +157,9 @@ endif()
 
 # 创建测试可执行文件
 add_executable(dsnet_test 
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/test.cpp" 
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/dsnet_inference.cpp" 
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/dsnet_inference_result.cpp"
+    "${PROJECT_SOURCES}"
+    "${TEST_SOURCES}"
 )
-
-# 创建权重加载测试程序
-add_executable(test_weight_loading
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/test_weight_loading.cpp"
-)
-
-target_include_directories(test_weight_loading PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${EIGEN3_INCLUDE_DIR}
-)
-
-target_link_libraries(test_weight_loading dsnet_inference Eigen3::Eigen)
-
-# 创建PointNet++算法测试程序
-add_executable(test_pointnet_algorithms
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/test_pointnet_algorithms.cpp"
-)
-
-target_include_directories(test_pointnet_algorithms PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${EIGEN3_INCLUDE_DIR}
-)
-
-target_link_libraries(test_pointnet_algorithms dsnet_inference Eigen3::Eigen)
 
 # 安装规则
 install(TARGETS dsnet_inference
@@ -191,19 +168,19 @@ install(TARGETS dsnet_inference
     RUNTIME DESTINATION bin
 )
 
-install(FILES ${DSNET_HEADERS}
+install(FILES ${PROJECT_HEADERS}
     DESTINATION include
 )
 
-install(TARGETS dsnet_test
-    DESTINATION bin
-)
+# install(TARGETS dsnet_test
+#     DESTINATION bin
+# )
 
 # 添加测试
 enable_testing()
 
 # 添加权重加载测试用例  
-add_test(NAME test_weight_loading COMMAND test_weight_loading)
+# add_test(NAME test_weight_loading COMMAND test_weight_loading)
 
 # 打印配置信息
 message(STATUS "")
