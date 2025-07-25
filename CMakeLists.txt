@@ -46,41 +46,25 @@ else()
 endif()
 
 # 可选依赖
-find_package(OpenCV QUIET)
-find_package(PCL CONFIG QUIET)
-find_package(Torch QUIET)
-find_package(CUDA QUIET)
+find_package(OpenCV REQUIRED)
+find_package(PCL CONFIG REQUIRED)
+find_package(Torch REQUIRED)
+find_package(CUDA REQUIRED)
 
 # 设置编译标志
-if(OpenCV_FOUND)
-    message(STATUS "Found OpenCV: ${OpenCV_VERSION}")
-    add_definitions(-DUSE_OPENCV)
-else()
-    message(WARNING "OpenCV not found - 某些功能可能不可用")
-endif()
+message(STATUS "Found OpenCV: ${OpenCV_VERSION}")
+add_definitions(-DUSE_OPENCV)
 
-if(PCL_FOUND)
-    message(STATUS "Found PCL: ${PCL_VERSION}")
-    add_definitions(-DUSE_PCL)
-else()
-    message(WARNING "PCL not found - 点云功能可能不可用")
-endif()
+message(STATUS "Found PCL: ${PCL_VERSION}")
+add_definitions(-DUSE_PCL)
 
-if(Torch_FOUND)
-    message(STATUS "Found LibTorch: ${Torch_VERSION}")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
-    add_definitions(-DUSE_TORCH)
-else()
-    message(WARNING "LibTorch not found - 将使用手写实现")
-endif()
+message(STATUS "Found LibTorch: ${Torch_VERSION}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+add_definitions(-DUSE_TORCH)
 
-if(CUDA_FOUND)
-    message(STATUS "Found CUDA: ${CUDA_VERSION}")
-    enable_language(CUDA)
-    add_definitions(-DUSE_CUDA)
-else()
-    message(WARNING "CUDA not found - 将使用CPU实现")
-endif()
+message(STATUS "Found CUDA: ${CUDA_VERSION}")
+enable_language(CUDA)
+add_definitions(-DUSE_CUDA)
 
 message(STATUS "LibTorch found: ${Torch_VERSION}")
 message(STATUS "PCL found: ${PCL_VERSION}")
@@ -120,22 +104,11 @@ add_library(dsnet_inference STATIC ${PROJECT_SOURCES})
 # 基础链接库
 target_link_libraries(dsnet_inference Eigen3::Eigen)
 
-# 可选链接库
-if(OpenCV_FOUND)
-    target_link_libraries(dsnet_inference ${OpenCV_LIBS})
-endif()
-
-if(PCL_FOUND)
-    target_link_libraries(dsnet_inference ${PCL_LIBRARIES})
-endif()
-
-if(Torch_FOUND)
-    target_link_libraries(dsnet_inference ${TORCH_LIBRARIES})
-endif()
-
-if(CUDA_FOUND)
-    target_link_libraries(dsnet_inference ${CUDA_LIBRARIES})
-endif()
+# 链接必需库
+target_link_libraries(dsnet_inference ${OpenCV_LIBS})
+target_link_libraries(dsnet_inference ${PCL_LIBRARIES})
+target_link_libraries(dsnet_inference ${TORCH_LIBRARIES})
+target_link_libraries(dsnet_inference ${CUDA_LIBRARIES})
 
 # 设置库的包含目录
 target_include_directories(dsnet_inference PUBLIC
@@ -143,17 +116,9 @@ target_include_directories(dsnet_inference PUBLIC
     ${EIGEN3_INCLUDE_DIR}
 )
 
-# 可选包含目录
-if(OpenCV_FOUND)
-    target_include_directories(dsnet_inference PUBLIC ${OpenCV_INCLUDE_DIRS})
-endif()
-
-if(PCL_FOUND)
-    target_include_directories(dsnet_inference PUBLIC ${PCL_INCLUDE_DIRS})
-    # 手动添加vcpkg PCL路径作为备用
-    target_include_directories(dsnet_inference PUBLIC "/home/lixinlong/SoftWare/vcpkg/installed/x64-linux/include")
-    message(STATUS "PCL include dirs: ${PCL_INCLUDE_DIRS}")
-endif()
+# 必需库包含目录
+target_include_directories(dsnet_inference PUBLIC ${OpenCV_INCLUDE_DIRS})
+target_include_directories(dsnet_inference PUBLIC ${PCL_INCLUDE_DIRS})
 
 # 创建测试可执行文件
 add_executable(dsnet_test 

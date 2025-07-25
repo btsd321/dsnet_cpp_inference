@@ -1,5 +1,5 @@
 
-#include "dsnet_inference/dsnet_pointnet_backbone.h"
+#include "pointnet2/dsnet_pointnet_backbone.h"
 
 #include <algorithm>
 #include <cmath>
