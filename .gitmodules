@@ -1,5 +1,0 @@
-[submodule "thirdparty/argparse"]
-	path = thirdparty/argparse
-	url = https://github.com/p-ranav/argparse
-    branch = btsd
-

@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(dsnet_inference VERSION 1.0.0 LANGUAGES CXX)
 
+# CUDA编译选项
+option(WITH_CUDA "是否编译CUDA支持" OFF)
+
 # 设置C++标准
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -45,11 +48,14 @@ else()
     message(FATAL_ERROR "LibTorch not found at ${LIBTORCH_ROOT}. Please set LIBTORCH_ROOT to the correct path.")
 endif()
 
+
 # 可选依赖
 find_package(OpenCV REQUIRED)
 find_package(PCL CONFIG REQUIRED)
 find_package(Torch REQUIRED)
-find_package(CUDA REQUIRED)
+if(WITH_CUDA)
+    find_package(CUDA QUIET)
+endif()
 
 # 设置编译标志
 message(STATUS "Found OpenCV: ${OpenCV_VERSION}")
@@ -62,9 +68,14 @@ message(STATUS "Found LibTorch: ${Torch_VERSION}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 add_definitions(-DUSE_TORCH)
 
-message(STATUS "Found CUDA: ${CUDA_VERSION}")
-enable_language(CUDA)
-add_definitions(-DUSE_CUDA)
+
+if(WITH_CUDA AND CUDA_FOUND)
+    message(STATUS "Found CUDA: ${CUDA_VERSION}")
+    enable_language(CUDA)
+    add_definitions(-DUSE_CUDA)
+elseif(WITH_CUDA)
+    message(FATAL_ERROR "WITH_CUDA=ON 但未找到CUDA")
+endif()
 
 message(STATUS "LibTorch found: ${Torch_VERSION}")
 message(STATUS "PCL found: ${PCL_VERSION}")
@@ -76,8 +87,25 @@ if(EXISTS "~/SoftWare/vcpkg/installed/x64-linux/include/argparse")
     message(STATUS "Found argparse in vcpkg")
 endif()
 
+
+# 收集utils相关源文件
+file(GLOB UTILS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/utils/*.cpp")
+# 收集utils相关头文件
+file(GLOB UTILS_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/include/utils/*.h")
 # 收集pointnet2相关源文件
-file(GLOB POINTNET2_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/pointnet2/*.cpp")
+if(WITH_CUDA AND CUDA_FOUND)
+    file(GLOB POINTNET2_SOURCES 
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/pointnet2/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/pointnet2/cuda/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/pointnet2/cuda/*.cu"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/pointnet2/pt/*.cpp"
+    )
+else()
+    file(GLOB POINTNET2_SOURCES 
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/pointnet2/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/pointnet2/pt/*.cpp"
+    )
+endif()
 # 收集dsnet相关源文件
 file(GLOB DSNET_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/dsnet/*.cpp")
 # 收集pointnet2相关头文件
@@ -89,11 +117,13 @@ file(GLOB TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/test/*.cpp")
 
 # 创建dsnet推理库
 set(PROJECT_SOURCES
+    "${UTILS_SOURCES}"
     "${POINTNET2_SOURCES}"
     "${DSNET_SOURCES}"
 )
 
 set(PROJECT_HEADERS
+    "${UTILS_HEADERS}"
     "${POINTNET2_HEADERS}"
     "${DSNET_HEADERS}"
 )
@@ -108,7 +138,9 @@ target_link_libraries(dsnet_inference Eigen3::Eigen)
 target_link_libraries(dsnet_inference ${OpenCV_LIBS})
 target_link_libraries(dsnet_inference ${PCL_LIBRARIES})
 target_link_libraries(dsnet_inference ${TORCH_LIBRARIES})
-target_link_libraries(dsnet_inference ${CUDA_LIBRARIES})
+if(WITH_CUDA AND CUDA_FOUND)
+    target_link_libraries(dsnet_inference ${CUDA_LIBRARIES})
+endif()
 
 # 设置库的包含目录
 target_include_directories(dsnet_inference PUBLIC
